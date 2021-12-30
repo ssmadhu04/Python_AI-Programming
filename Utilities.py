@@ -104,7 +104,7 @@ def validation(model, testloader, criterion):
 
 def load_checkpoint(filepath):
     checkpoint = torch.load(filepath)
-    model = checkpoint['model']
+    model = checkpoint['arch']
     model.classifier = checkpoint['classifier']
     model.load_state_dict(checkpoint['state_dict'])
     model.class_to_idx = checkpoint['class_to_idx']
