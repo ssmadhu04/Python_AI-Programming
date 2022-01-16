@@ -1,159 +1,150 @@
-from workspace_utils import active_session
-with active_session():
-    # Imports here
-    import pickle 
-    import torch
-    from torchvision import datasets, transforms, models
-    from torchvision.transforms import functional as TF
-    from torch import nn
-    from torch import optim
-    import torch.nn.functional as F
-    from PIL import Image
-    from matplotlib import pyplot as plt
-    from matplotlib.pyplot import imshow
-    import numpy as np
-    import json
-    import argparse
+import matplotlib.pyplot as plt
+import numpy as np
 
-    #get our command line arguments
-    def get_input_args():
-        parser = argparse.ArgumentParser(description='Process values for arguments')
-        parser.add_argument('--dir', type = str, default = 'flowers/', help='Path to folder of images')
-        parser.add_argument('--arch', type = str, default = 'vgg', help = "Architecture for the NN model")
-        parser.add_argument('--hidden_units', type = int, default = 512, help = "Number of hidden training units")
-        parser.add_argument('--learnrate', type = float, default = 0.01, help = "Scalar to multiply loss by")
-        parser.add_argument('--epochs', type = int, default = 20, help = "Number of rounds of training")
-        #parser.add_argument('--flower_cat', type = str, default = 'cat_to_name.json', help = "file with flower categories")
-        parser.add_argument('--gpu', type = str, default = 'cuda', help = "use cpu or cuda?")
-        return parser.parse_args()
+import torch
+from torch import nn
+from torch import optim
+import torch.nn.functional as F
+from torchvision import datasets, transforms, models
+from collections import OrderedDict
+import PIL
+from PIL import Image
 
-    args = get_input_args()
+import argparse
 
-    print("dir: ", args.dir)
-    print("arch: ", args.arch)
-    print("hidden units: ", args.hidden_units)
-    print("learnrate: ", args.learnrate)
-    print("epochs: ", args.epochs)
-    #print("flower categories file: ", args.flower_cat)
-    print("device: ", args.gpu)
+parser = argparse.ArgumentParser()
+parser.add_argument('--data_dir', help='directory for data:', default = './flowers')
+parser.add_argument('--arch', type = str, default = 'vgg16', help = 'Architecture type vgg16.')
+parser.add_argument('--save_dir', dest= 'save_dir', type = str, default = './checkpoint.pth', help = 'Folder where the model is saved: default is current.')
+parser.add_argument('--learning_rate', type = float, default = 0.001, help = 'Gradient descent learning rate')
+parser.add_argument('--hidden_layer', type = int, action= 'store', dest = 'hidden_layer', default = 25088, help = 'Number of hidden units #1 for classifier.')
 
-    print("Setting up directories, transforms, and dataloaders...")
-    data_dir = args.dir
-    train_dir = data_dir + 'train'
-    valid_dir = data_dir + 'valid'
-    test_dir = data_dir + 'test'
+parser.add_argument('--hidden_layer2', type = int, action= 'store', dest = 'hidden_layer2', default = 4096, help = 'Number of hidden units #2 for classifier.')
 
-    #Dataset transforms
-    train_transforms = transforms.Compose([transforms.Resize(255),
-                                    transforms.CenterCrop(224),
-                                    transforms.RandomHorizontalFlip(),
-                                    transforms.ToTensor(),
-                                    transforms.Normalize((0.485, 0.485, 0.485), (0.229, 0.224, 0.225))])
-    valid_transforms = transforms.Compose([transforms.Resize(255),
-                                          transforms.CenterCrop(224),
-                                          transforms.ToTensor(),
-                                          transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])])
+parser.add_argument('--output_layer', type = int, action= 'store', dest = 'output_layer', default = 102, help = 'Number of output units for classifier.')
 
-    #Datasets
-    train_data = datasets.ImageFolder(train_dir, transform=train_transforms)
-    valid_data = datasets.ImageFolder(train_dir, transform=valid_transforms)
-
-    #Dataloaders
-    train_dataloader = torch.utils.data.DataLoader(train_data, batch_size=32, shuffle=True)
-    valid_dataloader = torch.utils.data.DataLoader(valid_data, batch_size=32, shuffle=True)
-
-    print("Setting up device")
-    device = torch.device(args.gpu)
-
-    print("Setting up models")
-    my_models = {"vgg":models.vgg11(pretrained = True), "densenet":models.densenet121(pretrained = True)}
-    model = my_models[args.arch]#models.densenet121(pretrained = True)#my_models[args.arch]#models.vgg11(pretrained = True)
-
-    # Freeze parameters so we don't backprop through them
-    for param in model.parameters():
-        param.requires_grad = False
-
-    print("Setting up classifiers")
-    my_classifiers = {}
-    my_classifiers["vgg"] = nn.Sequential(nn.Linear(25088, args.hidden_units),
-                                     nn.ReLU(),
-                                     nn.Dropout(0.2),
-                                     nn.Linear(args.hidden_units, 512),
-                                     nn.ReLU(),
-                                     nn.Dropout(0.2),
-                                     nn.Linear(512, 102),
-                                     nn.LogSoftmax(dim=1))
-    my_classifiers["densenet"] = nn.Sequential(nn.Linear(1024, args.hidden_units),
-                                     nn.ReLU(),
-                                     nn.Dropout(0.2),
-                                     nn.Linear(args.hidden_units, 256),
-                                     nn.ReLU(),
-                                     nn.Dropout(0.2),
-                                     nn.Linear(256, 102),
-                                     nn.LogSoftmax(dim=1))
-    model.classifier = my_classifiers[args.arch]
-    criterion = nn.NLLLoss()
-
-    # Only train the classifier parameters, feature parameters are frozen
-    optimizer = optim.Adam(model.classifier.parameters(), lr=args.learnrate)
-
-    model.to(device);
+parser.add_argument('--epochs', type = int, help = 'Number of epochs', default = 1)
 
 
-    print("Model Prepared?")
-    print(model)
+args = parser.parse_args()
 
-    # TODO: Do validation on the test set
+data_dir = args.data_dir
+train_dir = data_dir + '/train'
+valid_dir = data_dir + '/valid'
+test_dir = data_dir + '/test'
 
-    train_losses, test_losses = [], []
-    epochs = args.epochs
-    steps = 0
+train_transforms = transforms.Compose([transforms.RandomRotation(10),
+                                       transforms.RandomHorizontalFlip(),
+                                       transforms.RandomResizedCrop(224),
+                                       transforms.ToTensor(),
+                                       transforms.Normalize([0.485, 0.456, 0.406],
+                                                          [0.229, 0.224, 0.225])])
 
-    print("Training and Testing Model ", epochs, " times")
-    for e in range(epochs):
-        running_loss = 0
-        print("Training...")
-        for images, labels in train_dataloader:
-            steps += 1
-            # Move input and label tensors to the default device
-            images, labels = images.to(device), labels.to(device)
-            optimizer.zero_grad()
-            logps = model.forward(images)
-            loss = criterion(logps, labels)
-            loss.backward()
-            print("Epoch: ", e + 1, "Training Loss: ", loss.item())
-            optimizer.step()
-            running_loss += loss.item()
-        else:
-            test_loss = 0
-            accuracy = 0
-            print("Testing...")
-            ## TODO: Implement the validation pass and print out the validation accuracy
-            with torch.no_grad():
-                model.eval()
-                for images, labels in valid_dataloader:
-                    images, labels = images.to(device), labels.to(device)
-                    log_ps = model.forward(images)
-                    test_loss += criterion(log_ps, labels)
-                    ps = torch.exp(log_ps)
-                    top_p, top_class = ps.topk(1, dim=1)
-                    equals = top_class == labels.view(*top_class.shape)
-                    accuracy += torch.mean(equals.type(torch.FloatTensor))
-            model.train()
-            train_losses.append(running_loss/len(train_dataloader))
-            test_losses.append(test_loss/len(valid_dataloader))
-            print("Epoch:  {}/{}.. ".format(e+1, epochs),
-                  "Train Loss: {:.3f}.. ".format(running_loss/len(train_dataloader)),
-                  "Test Loss: {:.3f}.. ".format(test_loss/len(valid_dataloader)),
-                  "Test Accuracy: {:.3f}".format(accuracy/len(valid_dataloader)))
+valid_transforms = transforms.Compose([transforms.Resize(255),
+                                       transforms.CenterCrop(224),
+                                       transforms.ToTensor(),
+                                       transforms.Normalize([0.485, 0.456, 0.406],
+                                                          [0.229, 0.224, 0.225])])
 
-    #Save the checkpoint
-    print("Saving checkpoint file")
-    checkpoint = {'arch' : args.arch,
-                  'classifier' : model.classifier,
-                  'epochs': args.epochs,
-                  'state_dict': model.state_dict(),
-                  'optimizer': optimizer.state_dict(),
-                  'device' : device}
+test_transforms = transforms.Compose([transforms.Resize(255),
+                                      transforms.CenterCrop(224),
+                                      transforms.ToTensor(),
+                                      transforms.Normalize([0.485, 0.456, 0.406],
+                                                           [0.229, 0.224, 0.225])])
+
+train_data = datasets.ImageFolder(train_dir, transform=train_transforms)
+valid_data = datasets.ImageFolder(valid_dir, transform=valid_transforms)
+test_data = datasets.ImageFolder(test_dir, transform=test_transforms)
+
+trainloader = torch.utils.data.DataLoader(train_data, batch_size=64, shuffle=True)
+validloader = torch.utils.data.DataLoader(valid_data, batch_size=32)
+testloader = torch.utils.data.DataLoader(test_data, batch_size=32)
+
+import json
+
+with open('cat_to_name.json', 'r') as f:
+    cat_to_name = json.load(f)
+    
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+
+model = getattr(models, args.arch)(pretrained=True)
+
+for param in model.parameters():
+    param.requires_grad = False
+    
+
+classifier = nn.Sequential(OrderedDict([('fc1', nn.Linear(args.hidden_layer, args.hidden_layer2)),
+                                        ('relu', nn.ReLU()),
+                                        ('dropout', nn.Dropout(0.5)),
+                                        ('fc2', nn.Linear(args.hidden_layer2, args.output_layer)),
+                                        ('output', nn.LogSoftmax(dim=1))]))
+
+model.classifier = classifier
+
+criterion = nn.NLLLoss()
+optimizer = optim.Adam(model.classifier.parameters(), lr=args.learning_rate)
+
+def validation(model, testloader, criterion):
+    test_loss = 0
+    accuracy = 0
+    model.to(device)
+    for images, labels in testloader:
+        images, labels = images.to(device), labels.to(device)
+        output = model.forward(images)
+        test_loss += criterion(output, labels).item()
         
-    print("Finished Training file")
+        ps = torch.exp(output)
+        equality = (labels.data == ps.max(dim=1)[1])
+        accuracy += equality.type(torch.FloatTensor).mean()
+    
+    return test_loss, accuracy
+
+epochs = args.epochs
+steps = 0
+print_every = 40
+model.to(device)
+
+for e in range(epochs):
+    model.train()
+    running_loss = 0
+    
+    for images, labels in iter(trainloader):
+        steps += 1
+
+        images, labels = images.to(device), labels.to(device)
+
+        optimizer.zero_grad()
+        
+        output = model.forward(images)
+        loss = criterion(output, labels)
+        loss.backward()
+        optimizer.step()
+        
+        running_loss += loss.item()
+        
+        if steps % print_every == 0:
+            model.eval()
+            with torch.no_grad():
+                test_loss, accuracy = validation(model, testloader, criterion)
+            
+            print("Epoch: {}/{}.. ".format(e+1, epochs),
+                  "Training Loss: {:.3f}.. ".format(running_loss/print_every),
+                  "Test Loss: {:.3f}.. ".format(test_loss/len(testloader)),
+                  "Test Accuracy: {:.3f}".format(accuracy/len(testloader)))
+            
+            running_loss = 0
+            
+            model.train()
+
+            model.class_to_idx = train_data.class_to_idx
+
+checkpoint = {'input_size': 25088,
+              'output_size': 102,
+              'epochs': epochs,
+              'model': models.vgg16(pretrained=True),
+              'classifier': classifier,
+              'optimizer': optimizer.state_dict(),
+              'class_to_idx': model.class_to_idx,
+              'state_dict': model.state_dict()}
+
+torch.save(checkpoint, '/checkpoint.pth')
