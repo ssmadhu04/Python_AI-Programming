@@ -25,6 +25,9 @@ parser.add_argument('--output_layer', type = int, action= 'store', dest = 'outpu
 
 parser.add_argument('--epochs', type = int, help = 'Number of epochs', default = 1)
 
+parser.add_argument('--image_path', type=str, help='path of image to be predicted')
+
+parser.add_argument('--topk', type=int, default=5, help='display top k probabilities')
 
 args = parser.parse_args()
 
@@ -136,15 +139,19 @@ for e in range(epochs):
             
             model.train()
 
-            model.class_to_idx = train_data.class_to_idx
+model.class_to_idx = train_data.class_to_idx
 
+print("Saving checkpoint file")
 checkpoint = {'input_size': 25088,
               'output_size': 102,
               'epochs': epochs,
-              'model': models.vgg16(pretrained=True),
+              'model': getattr(models, args.arch)(pretrained=True),
               'classifier': classifier,
               'optimizer': optimizer.state_dict(),
               'class_to_idx': model.class_to_idx,
               'state_dict': model.state_dict()}
-
+for key in checkpoint.keys():
+     print(key)
+        
 torch.save(checkpoint, '/checkpoint.pth')
+print("Finished Training file")
