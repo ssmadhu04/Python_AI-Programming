@@ -23,7 +23,7 @@ parser.add_argument('--hidden_layer2', type = int, action= 'store', dest = 'hidd
 
 parser.add_argument('--output_layer', type = int, action= 'store', dest = 'output_layer', default = 102, help = 'Number of output units for classifier.')
 
-parser.add_argument('--epochs', type = int, help = 'Number of epochs', default = 1)
+parser.add_argument('--epochs', type = int, help = 'Number of epochs', default = 10)
 
 parser.add_argument('--image_path', type=str, help='path of image to be predicted')
 
@@ -101,7 +101,9 @@ def validation(model, testloader, criterion):
         accuracy += equality.type(torch.FloatTensor).mean()
     
     return test_loss, accuracy
-
+print("Model Prepared?")
+print(model) 
+    
 epochs = args.epochs
 steps = 0
 print_every = 40
